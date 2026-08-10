@@ -300,11 +300,11 @@ app.post('/api/tag/assign', async (req, res) => {
         // Check if competitor already has a tag
         const competitorId = wca_id || temp_id;
         if (competitorId) {
-            const existingCompTag = await supabaseQuery('nfc_tags', 'GET', null, {
-                'competition_id': `eq.${competition_id}`,
-                wca_id ? 'wca_id' : 'temp_id': `eq.${competitorId}`,
-                'status': 'eq.assigned'
-            });
+            const tagFilter = wca_id 
+                ? { 'competition_id': `eq.${competition_id}`, 'wca_id': `eq.${competitorId}`, 'status': 'eq.assigned' }
+                : { 'competition_id': `eq.${competition_id}`, 'temp_id': `eq.${competitorId}`, 'status': 'eq.assigned' };
+            
+            const existingCompTag = await supabaseQuery('nfc_tags', 'GET', null, tagFilter);
             
             if (existingCompTag.length > 0) {
                 return res.status(409).json({
@@ -433,12 +433,11 @@ app.post('/api/checkin', async (req, res) => {
         // Check for existing check-in (general check-in - no event/table specified)
         if (!event_id && !table_number) {
             // General check-in - check if already checked in (without event/table)
-            const existingCheckin = await supabaseQuery('nfc_check_ins', 'GET', null, {
-                'competition_id': `eq.${competition_id}`,
-                wca_id ? 'wca_id' : 'temp_id': `eq.${wca_id || temp_id}`,
-                'event_id': 'is.null',
-                'table_number': 'is.null'
-            });
+            const checkinFilter = wca_id 
+                ? { 'competition_id': `eq.${competition_id}`, 'wca_id': `eq.${wca_id}`, 'event_id': 'is.null', 'table_number': 'is.null' }
+                : { 'competition_id': `eq.${competition_id}`, 'temp_id': `eq.${temp_id}`, 'event_id': 'is.null', 'table_number': 'is.null' };
+            
+            const existingCheckin = await supabaseQuery('nfc_check_ins', 'GET', null, checkinFilter);
             
             if (existingCheckin.length > 0) {
                 return res.status(409).json({ 
@@ -558,12 +557,11 @@ app.post('/api/checkin/manual', async (req, res) => {
 
         // Check for existing check-in (general check-in - no event/table specified)
         if (!event_id && !table_number) {
-            const existingCheckin = await supabaseQuery('nfc_check_ins', 'GET', null, {
-                'competition_id': `eq.${competition_id}`,
-                competitor.wca_id ? 'wca_id' : 'temp_id': `eq.${competitor.wca_id || competitor.temp_id}`,
-                'event_id': 'is.null',
-                'table_number': 'is.null'
-            });
+            const manualCheckinFilter = competitor.wca_id 
+                ? { 'competition_id': `eq.${competition_id}`, 'wca_id': `eq.${competitor.wca_id}`, 'event_id': 'is.null', 'table_number': 'is.null' }
+                : { 'competition_id': `eq.${competition_id}`, 'temp_id': `eq.${competitor.temp_id}`, 'event_id': 'is.null', 'table_number': 'is.null' };
+            
+            const existingCheckin = await supabaseQuery('nfc_check_ins', 'GET', null, manualCheckinFilter);
             
             if (existingCheckin.length > 0) {
                 return res.status(409).json({ 
