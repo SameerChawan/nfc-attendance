@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>General Check-in — NFC Attendance</title>
+    <title>Table Check-in — NFC Attendance</title>
     <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -11,27 +11,37 @@
         <a href="/" class="back-link">← Back to Home</a>
         
         <div class="page-header">
-            <h1>✅ General Check-in</h1>
-            <div id="compSelector">
+            <h1>🎲 Table/Event Check-in</h1>
+            <div>
                 <select id="compSelect" onchange="loadCompetition()">
                     <option value="">Select Competition</option>
                 </select>
             </div>
         </div>
 
-        <!-- Stats -->
-        <div class="stats" id="statsContainer" style="display:none;">
-            <div class="stat-card">
-                <div class="value" id="totalCheckins">0</div>
-                <div class="label">Checked In</div>
+        <!-- Event/Table Selection -->
+        <div id="selectionContainer" style="display:none;">
+            <div class="form-group">
+                <label>Event *</label>
+                <select id="eventSelect" onchange="updateFilters()">
+                    <option value="">Select Event</option>
+                </select>
             </div>
-            <div class="stat-card">
-                <div class="value" id="totalCompetitors">0</div>
-                <div class="label">Total Competitors</div>
-            </div>
-            <div class="stat-card">
-                <div class="value" id="tagsAssigned">0</div>
-                <div class="label">Tags Assigned</div>
+            <div class="form-group">
+                <label>Table Number *</label>
+                <select id="tableSelect" onchange="updateFilters()">
+                    <option value="">Select Table</option>
+                    <option value="1">Table 1</option>
+                    <option value="2">Table 2</option>
+                    <option value="3">Table 3</option>
+                    <option value="4">Table 4</option>
+                    <option value="5">Table 5</option>
+                    <option value="6">Table 6</option>
+                    <option value="7">Table 7</option>
+                    <option value="8">Table 8</option>
+                    <option value="9">Table 9</option>
+                    <option value="10">Table 10</option>
+                </select>
             </div>
         </div>
 
@@ -39,7 +49,7 @@
         <div id="scannerContainer" style="display:none;">
             <div class="nfc-scanner" id="nfcScanner">
                 <div class="icon">📱</div>
-                <div class="message" id="scannerMessage">Tap competitor ID card</div>
+                <div class="message" id="scannerMessage">Tap competitor ID card at table</div>
                 <div class="uid" id="scannerUid"></div>
             </div>
 
@@ -60,15 +70,29 @@
             </div>
         </div>
 
-        <!-- Recent Check-ins -->
+        <!-- Stats -->
+        <div id="statsContainer" style="display:none;">
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="value" id="tableCheckins">0</div>
+                    <div class="label">Table Check-ins</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value" id="totalCheckins">0</div>
+                    <div class="label">Total Checked In</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Check-ins for this table -->
         <div id="recentContainer" style="display:none;">
-            <h2 style="margin-bottom:1rem;">Recent Check-ins</h2>
+            <h2 style="margin-bottom:1rem;">Recent Table Check-ins</h2>
             <div class="recent-list" id="recentList"></div>
         </div>
 
         <!-- No competition selected -->
         <div id="noCompMessage" class="alert alert-info">
-            Select a competition to start taking attendance.
+            Select a competition and configure event/table to start check-in.
         </div>
     </div>
 
@@ -76,6 +100,8 @@
     <script src="/js/nfc.js"></script>
     <script>
         let currentComp = null;
+        let selectedEvent = null;
+        let selectedTable = null;
         let checkins = [];
 
         // Load competitions list
@@ -109,6 +135,7 @@
             
             if (!compId) {
                 document.getElementById('noCompMessage').style.display = 'block';
+                document.getElementById('selectionContainer').style.display = 'none';
                 document.getElementById('scannerContainer').style.display = 'none';
                 document.getElementById('statsContainer').style.display = 'none';
                 document.getElementById('recentContainer').style.display = 'none';
@@ -118,50 +145,77 @@
             try {
                 currentComp = await API.get(`/api/competition/${compId}`);
                 
-                // Load data
-                await Promise.all([
-                    loadStats(compId),
-                    loadCheckins(compId)
-                ]);
+                // Load events
+                const eventSelect = document.getElementById('eventSelect');
+                eventSelect.innerHTML = '<option value="">Select Event</option>';
+                if (currentComp.events) {
+                    currentComp.events.forEach(event => {
+                        const opt = document.createElement('option');
+                        opt.value = event;
+                        opt.textContent = event;
+                        eventSelect.appendChild(opt);
+                    });
+                }
 
-                // Show UI
                 document.getElementById('noCompMessage').style.display = 'none';
-                document.getElementById('scannerContainer').style.display = 'block';
-                document.getElementById('statsContainer').style.display = 'grid';
-                document.getElementById('recentContainer').style.display = 'block';
-
-                // Start NFC reading
-                startNFCReading();
+                document.getElementById('selectionContainer').style.display = 'block';
             } catch (error) {
                 showToast('Error loading competition', 'error');
             }
         }
 
+        // Update filters and show scanner
+        function updateFilters() {
+            selectedEvent = document.getElementById('eventSelect').value;
+            selectedTable = document.getElementById('tableSelect').value;
+            
+            if (selectedEvent && selectedTable) {
+                document.getElementById('scannerContainer').style.display = 'block';
+                document.getElementById('statsContainer').style.display = 'grid';
+                document.getElementById('recentContainer').style.display = 'block';
+                startNFCReading();
+                loadStats();
+                loadCheckins();
+            } else {
+                document.getElementById('scannerContainer').style.display = 'none';
+                document.getElementById('statsContainer').style.display = 'none';
+                document.getElementById('recentContainer').style.display = 'none';
+            }
+        }
+
         // Load stats
-        async function loadStats(compId) {
-            const stats = await API.get(`/api/stats/${compId}`);
+        async function loadStats() {
+            if (!currentComp) return;
+            const stats = await API.get(`/api/stats/${currentComp.competition_id}`);
             document.getElementById('totalCheckins').textContent = stats.total_checkins;
-            document.getElementById('totalCompetitors').textContent = stats.total_competitors;
-            document.getElementById('tagsAssigned').textContent = stats.tags_assigned;
+            
+            // Count table-specific checkins
+            const tableCheckins = checkins.filter(c => 
+                c.event_id === selectedEvent && c.table_number === parseInt(selectedTable)
+            ).length;
+            document.getElementById('tableCheckins').textContent = tableCheckins;
         }
 
         // Load check-ins
-        async function loadCheckins(compId) {
-            checkins = await API.get(`/api/checkin/${compId}`);
+        async function loadCheckins() {
+            if (!currentComp) return;
+            checkins = await API.get(`/api/checkin/${currentComp.competition_id}`);
             renderRecentCheckins();
         }
 
-        // Render recent check-ins
+        // Render recent check-ins for this table
         function renderRecentCheckins() {
             const container = document.getElementById('recentList');
-            const recent = checkins.slice(0, 20);
+            const tableCheckins = checkins.filter(c => 
+                c.event_id === selectedEvent && c.table_number === parseInt(selectedTable)
+            ).slice(0, 20);
             
-            if (recent.length === 0) {
-                container.innerHTML = '<p style="color:var(--text-muted); text-align:center;">No check-ins yet. Tap an NFC card to begin.</p>';
+            if (tableCheckins.length === 0) {
+                container.innerHTML = '<p style="color:var(--text-muted); text-align:center;">No check-ins at this table yet.</p>';
                 return;
             }
 
-            container.innerHTML = recent.map(c => `
+            container.innerHTML = tableCheckins.map(c => `
                 <div class="recent-item">
                     <span class="check">✓</span>
                     <span class="name">${c.competitor_name}</span>
@@ -200,7 +254,7 @@
                             const result = await API.get(`/api/tag/lookup/${tagUid}`);
                             
                             if (result.found && result.competitor) {
-                                // Record check-in (general - no event/table)
+                                // Record check-in
                                 try {
                                     await API.post('/api/checkin', {
                                         competition_id: currentComp.competition_id,
@@ -208,8 +262,8 @@
                                         temp_id: result.tag.temp_id,
                                         competitor_name: result.competitor.name,
                                         tag_uid: tagUid,
-                                        event_id: null,
-                                        table_number: null,
+                                        event_id: selectedEvent,
+                                        table_number: parseInt(selectedTable),
                                         method: 'nfc'
                                     });
 
@@ -221,17 +275,16 @@
 
                                     // Reload data
                                     await Promise.all([
-                                        loadStats(currentComp.competition_id),
-                                        loadCheckins(currentComp.competition_id)
+                                        loadStats(),
+                                        loadCheckins()
                                     ]);
 
                                     showToast(`Checked in: ${result.competitor.name}`, 'success');
                                 } catch (error) {
-                                    if (error.message && error.message.includes('409')) {
+                                    if (error.message.includes('409')) {
                                         scanner.classList.remove('scanning');
                                         scanner.classList.add('error');
                                         message.textContent = 'Already checked in';
-                                        uidEl.textContent = '';
                                         showToast('Competitor already checked in', 'error');
                                     } else {
                                         throw error;
@@ -242,15 +295,13 @@
                                 scanner.classList.remove('scanning');
                                 scanner.classList.add('error');
                                 message.textContent = 'Tag not registered';
-                                uidEl.textContent = tagUid;
-
                                 showToast('Tag not registered. Assign it first.', 'error');
                             }
 
                             // Reset scanner after 3 seconds
                             setTimeout(() => {
                                 scanner.classList.remove('success', 'error');
-                                message.textContent = 'Tap competitor ID card';
+                                message.textContent = 'Tap competitor ID card at table';
                                 uidEl.textContent = '';
                             }, 3000);
                         } catch (error) {
@@ -288,19 +339,19 @@
                 await API.post('/api/checkin/manual', {
                     competition_id: currentComp.competition_id,
                     identifier,
-                    event_id: null,
-                    table_number: null
+                    event_id: selectedEvent,
+                    table_number: parseInt(selectedTable)
                 });
 
                 showToast('Checked in!', 'success');
                 document.getElementById('manualIdentifier').value = '';
                 
                 await Promise.all([
-                    loadStats(currentComp.competition_id),
-                    loadCheckins(currentComp.competition_id)
+                    loadStats(),
+                    loadCheckins()
                 ]);
             } catch (error) {
-                if (error.message && error.message.includes('409')) {
+                if (error.message.includes('409')) {
                     showToast('Competitor already checked in', 'error');
                 } else {
                     showToast('Competitor not found', 'error');

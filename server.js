@@ -225,14 +225,35 @@ app.post('/api/competitors/csv', upload.single('file'), async (req, res) => {
     }
 });
 
-// List competitors
+// List competitors (exclude those who already have tags)
 app.get('/api/competitors/:comp_id', async (req, res) => {
     try {
-        const result = await supabaseQuery('nfc_competitors', 'GET', null, {
-            'competition_id': `eq.${req.params.comp_id}`,
+        const compId = req.params.comp_id;
+        
+        // Get all competitors for this competition
+        const competitors = await supabaseQuery('nfc_competitors', 'GET', null, {
+            'competition_id': `eq.${compId}`,
             'order': 'name.asc'
         });
-        res.json(result);
+        
+        // Get all assigned tags for this competition
+        const tags = await supabaseQuery('nfc_tags', 'GET', null, {
+            'competition_id': `eq.${compId}`,
+            'status': 'eq.assigned'
+        });
+        
+        // Create set of assigned competitor IDs (wca_id or temp_id)
+        const assignedWcaIds = new Set(tags.filter(t => t.wca_id).map(t => t.wca_id));
+        const assignedTempIds = new Set(tags.filter(t => t.temp_id).map(t => t.temp_id));
+        
+        // Filter out competitors who already have tags
+        const unassigned = competitors.filter(c => {
+            if (c.wca_id && assignedWcaIds.has(c.wca_id)) return false;
+            if (c.temp_id && assignedTempIds.has(c.temp_id)) return false;
+            return true;
+        });
+        
+        res.json(unassigned);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -240,12 +261,60 @@ app.get('/api/competitors/:comp_id', async (req, res) => {
 
 // ==================== NFC TAGS ====================
 
-// Assign tag to competitor
+// Assign tag to competitor (check if already assigned)
 app.post('/api/tag/assign', async (req, res) => {
     try {
         const { tag_uid, competition_id, wca_id, temp_id } = req.body;
         
-        // Upsert tag
+        // Check if tag is already assigned
+        const existingTag = await supabaseQuery('nfc_tags', 'GET', null, {
+            'tag_uid': `eq.${tag_uid}`
+        });
+        
+        if (existingTag.length > 0 && existingTag[0].status === 'assigned') {
+            // Tag is already assigned - return error with current assignment info
+            let assignedTo = existingTag[0].wca_id || existingTag[0].temp_id || 'Unknown';
+            
+            // Try to get competitor name
+            if (existingTag[0].wca_id) {
+                const comp = await supabaseQuery('nfc_competitors', 'GET', null, {
+                    'competition_id': `eq.${existingTag[0].competition_id}`,
+                    'wca_id': `eq.${existingTag[0].wca_id}`
+                });
+                if (comp.length > 0) assignedTo = comp[0].name + ' (' + assignedTo + ')';
+            } else if (existingTag[0].temp_id) {
+                const comp = await supabaseQuery('nfc_competitors', 'GET', null, {
+                    'competition_id': `eq.${existingTag[0].competition_id}`,
+                    'temp_id': `eq.${existingTag[0].temp_id}`
+                });
+                if (comp.length > 0) assignedTo = comp[0].name + ' (' + assignedTo + ')';
+            }
+            
+            return res.status(409).json({ 
+                error: 'Tag already assigned',
+                assigned_to: assignedTo,
+                competition_id: existingTag[0].competition_id
+            });
+        }
+        
+        // Check if competitor already has a tag
+        const competitorId = wca_id || temp_id;
+        if (competitorId) {
+            const existingCompTag = await supabaseQuery('nfc_tags', 'GET', null, {
+                'competition_id': `eq.${competition_id}`,
+                wca_id ? 'wca_id' : 'temp_id': `eq.${competitorId}`,
+                'status': 'eq.assigned'
+            });
+            
+            if (existingCompTag.length > 0) {
+                return res.status(409).json({
+                    error: 'Competitor already has a tag',
+                    existing_tag: existingCompTag[0].tag_uid
+                });
+            }
+        }
+        
+        // Insert new tag assignment
         const result = await supabaseQuery('nfc_tags', 'POST', {
             tag_uid,
             competition_id,
@@ -253,8 +322,6 @@ app.post('/api/tag/assign', async (req, res) => {
             temp_id: temp_id || null,
             assigned_at: new Date().toISOString(),
             status: 'assigned'
-        }, {
-            'Prefer': 'return=representation,resolution=merge-duplicates'
         });
 
         res.json({ success: true, data: result });
@@ -358,10 +425,29 @@ app.get('/api/tag/lookup/:uid', async (req, res) => {
 
 // ==================== CHECK-INS ====================
 
-// Record attendance
+// Record attendance (prevent duplicate general check-in)
 app.post('/api/checkin', async (req, res) => {
     try {
         const { competition_id, wca_id, temp_id, competitor_name, tag_uid, event_id, table_number, method } = req.body;
+        
+        // Check for existing check-in (general check-in - no event/table specified)
+        if (!event_id && !table_number) {
+            // General check-in - check if already checked in (without event/table)
+            const existingCheckin = await supabaseQuery('nfc_check_ins', 'GET', null, {
+                'competition_id': `eq.${competition_id}`,
+                wca_id ? 'wca_id' : 'temp_id': `eq.${wca_id || temp_id}`,
+                'event_id': 'is.null',
+                'table_number': 'is.null'
+            });
+            
+            if (existingCheckin.length > 0) {
+                return res.status(409).json({ 
+                    error: 'Already checked in',
+                    check_in_time: existingCheckin[0].check_in_time,
+                    method: existingCheckin[0].method
+                });
+            }
+        }
         
         const result = await supabaseQuery('nfc_check_ins', 'POST', {
             competition_id,
@@ -369,8 +455,8 @@ app.post('/api/checkin', async (req, res) => {
             temp_id: temp_id || null,
             competitor_name,
             tag_uid,
-            event_id,
-            table_number,
+            event_id: event_id || null,
+            table_number: table_number || null,
             method: method || 'nfc'
         });
 
@@ -431,7 +517,7 @@ app.get('/api/checkin/:comp_id/export', async (req, res) => {
     }
 });
 
-// Manual check-in (by WCA ID or name)
+// Manual check-in (by WCA ID or name) - prevent duplicates
 app.post('/api/checkin/manual', async (req, res) => {
     try {
         const { competition_id, identifier, event_id, table_number } = req.body;
@@ -470,14 +556,32 @@ app.post('/api/checkin/manual', async (req, res) => {
             return res.status(404).json({ error: 'Competitor not found' });
         }
 
+        // Check for existing check-in (general check-in - no event/table specified)
+        if (!event_id && !table_number) {
+            const existingCheckin = await supabaseQuery('nfc_check_ins', 'GET', null, {
+                'competition_id': `eq.${competition_id}`,
+                competitor.wca_id ? 'wca_id' : 'temp_id': `eq.${competitor.wca_id || competitor.temp_id}`,
+                'event_id': 'is.null',
+                'table_number': 'is.null'
+            });
+            
+            if (existingCheckin.length > 0) {
+                return res.status(409).json({ 
+                    error: 'Already checked in',
+                    competitor: competitor,
+                    check_in_time: existingCheckin[0].check_in_time
+                });
+            }
+        }
+
         const checkin = await supabaseQuery('nfc_check_ins', 'POST', {
             competition_id,
             wca_id: competitor.wca_id,
             temp_id: competitor.temp_id,
             competitor_name: competitor.name,
             tag_uid: null,
-            event_id,
-            table_number,
+            event_id: event_id || null,
+            table_number: table_number || null,
             method: 'manual'
         });
 

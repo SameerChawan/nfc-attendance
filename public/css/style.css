@@ -87,6 +87,7 @@ header h1 {
 
 .card.admin { border-top: 3px solid var(--primary); }
 .card.attendance { border-top: 3px solid var(--success); }
+.card.table { border-top: 3px solid #8b5cf6; }
 .card.assign { border-top: 3px solid var(--warning); }
 
 /* NFC Status */

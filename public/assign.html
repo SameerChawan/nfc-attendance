@@ -158,16 +158,46 @@
                         // Show tag UID
                         scanner.classList.remove('success', 'error');
                         scanner.classList.add('scanning');
-                        message.textContent = 'Tag detected!';
+                        message.textContent = 'Checking tag...';
                         uidEl.textContent = currentTagUid;
 
-                        // Show competitor selection
+                        // Check if tag is already assigned
+                        try {
+                            const tagLookup = await API.get(`/api/tag/lookup/${currentTagUid}`);
+                            
+                            if (tagLookup.found) {
+                                // Tag is already assigned
+                                scanner.classList.remove('scanning');
+                                scanner.classList.add('error');
+                                message.textContent = `Already assigned to: ${tagLookup.competitor?.name || tagLookup.tag.wca_id || tagLookup.tag.temp_id}`;
+                                
+                                showToast('Tag already assigned. Use a different tag.', 'error');
+                                
+                                // Hide competitor selection
+                                document.getElementById('competitorSelect').style.display = 'none';
+                                document.getElementById('confirmSection').style.display = 'none';
+                                
+                                // Reset after 3 seconds
+                                setTimeout(() => {
+                                    scanner.classList.remove('error');
+                                    message.textContent = 'Step 1: Tap NFC tag to assign';
+                                    uidEl.textContent = '';
+                                    currentTagUid = null;
+                                }, 3000);
+                                return;
+                            }
+                        } catch (e) {
+                            // Tag not found, proceed with assignment
+                        }
+                        
+                        // Tag is available - show competitor selection
+                        message.textContent = 'Tag available!';
                         document.getElementById('competitorSelect').style.display = 'block';
                         document.getElementById('confirmSection').style.display = 'none';
                         document.getElementById('searchInput').value = '';
                         renderCompetitorList();
 
-                        // Reset scanner after 2 seconds
+                        // Reset scanner message after 2 seconds
                         setTimeout(() => {
                             scanner.classList.remove('scanning');
                             message.textContent = 'Step 1: Tap NFC tag to assign';
