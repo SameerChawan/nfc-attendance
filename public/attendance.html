@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance — NFC Attendance</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to Home</a>
+        
+        <div class="page-header">
+            <h1>✅ Attendance Table</h1>
+            <div id="compSelector">
+                <select id="compSelect" onchange="loadCompetition()">
+                    <option value="">Select Competition</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats" id="statsContainer" style="display:none;">
+            <div class="stat-card">
+                <div class="value" id="totalCheckins">0</div>
+                <div class="label">Checked In</div>
+            </div>
+            <div class="stat-card">
+                <div class="value" id="totalCompetitors">0</div>
+                <div class="label">Total Competitors</div>
+            </div>
+            <div class="stat-card">
+                <div class="value" id="tagsAssigned">0</div>
+                <div class="label">Tags Assigned</div>
+            </div>
+        </div>
+
+        <!-- Event/Table Filters -->
+        <div id="filtersContainer" style="display:none; margin-bottom:1.5rem;">
+            <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                <div class="form-group" style="margin-bottom:0; flex:1; min-width:150px;">
+                    <label>Event</label>
+                    <select id="eventFilter" onchange="filterCheckins()">
+                        <option value="">All Events</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0; flex:1; min-width:150px;">
+                    <label>Table</label>
+                    <select id="tableFilter" onchange="filterCheckins()">
+                        <option value="">All Tables</option>
+                        <option value="1">Table 1</option>
+                        <option value="2">Table 2</option>
+                        <option value="3">Table 3</option>
+                        <option value="4">Table 4</option>
+                        <option value="5">Table 5</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- NFC Scanner -->
+        <div id="scannerContainer" style="display:none;">
+            <div class="nfc-scanner" id="nfcScanner">
+                <div class="icon">📱</div>
+                <div class="message" id="scannerMessage">Tap competitor ID card</div>
+                <div class="uid" id="scannerUid"></div>
+            </div>
+
+            <!-- Manual Check-in -->
+            <div style="text-align:center; margin:1rem 0;">
+                <button class="btn btn-outline" onclick="showManualCheckin()">✏️ Manual Check-in</button>
+            </div>
+
+            <!-- Manual Check-in Form -->
+            <div id="manualForm" style="display:none; margin-bottom:2rem;">
+                <div class="form-group">
+                    <label>WCA ID, Temp ID, or Name</label>
+                    <div style="display:flex; gap:0.5rem;">
+                        <input type="text" id="manualIdentifier" placeholder="e.g., 2023CHAW01 or John">
+                        <button class="btn btn-primary" onclick="manualCheckin()">Check In</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Check-ins -->
+        <div id="recentContainer" style="display:none;">
+            <h2 style="margin-bottom:1rem;">Recent Check-ins</h2>
+            <div class="recent-list" id="recentList"></div>
+        </div>
+
+        <!-- No competition selected -->
+        <div id="noCompMessage" class="alert alert-info">
+            Select a competition to start taking attendance.
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+    <script src="/js/nfc.js"></script>
+    <script>
+        let currentComp = null;
+        let checkins = [];
+        let competitors = [];
+
+        // Load competitions list
+        window.onload = async () => {
+            try {
+                const comps = await API.get('/api/competitions');
+                const select = document.getElementById('compSelect');
+                
+                comps.forEach(comp => {
+                    const opt = document.createElement('option');
+                    opt.value = comp.competition_id;
+                    opt.textContent = comp.name;
+                    select.appendChild(opt);
+                });
+
+                // Check URL params
+                const params = new URLSearchParams(window.location.search);
+                const compParam = params.get('comp');
+                if (compParam) {
+                    select.value = compParam;
+                    await loadCompetition();
+                }
+            } catch (error) {
+                showToast('Error loading competitions', 'error');
+            }
+        };
+
+        // Load selected competition
+        async function loadCompetition() {
+            const compId = document.getElementById('compSelect').value;
+            
+            if (!compId) {
+                document.getElementById('noCompMessage').style.display = 'block';
+                document.getElementById('scannerContainer').style.display = 'none';
+                document.getElementById('statsContainer').style.display = 'none';
+                document.getElementById('filtersContainer').style.display = 'none';
+                document.getElementById('recentContainer').style.display = 'none';
+                return;
+            }
+
+            try {
+                currentComp = await API.get(`/api/competition/${compId}`);
+                
+                // Load events filter
+                const eventSelect = document.getElementById('eventFilter');
+                eventSelect.innerHTML = '<option value="">All Events</option>';
+                if (currentComp.events) {
+                    currentComp.events.forEach(event => {
+                        const opt = document.createElement('option');
+                        opt.value = event;
+                        opt.textContent = event;
+                        eventSelect.appendChild(opt);
+                    });
+                }
+
+                // Load data
+                await Promise.all([
+                    loadStats(compId),
+                    loadCheckins(compId),
+                    loadCompetitors(compId)
+                ]);
+
+                // Show UI
+                document.getElementById('noCompMessage').style.display = 'none';
+                document.getElementById('scannerContainer').style.display = 'block';
+                document.getElementById('statsContainer').style.display = 'grid';
+                document.getElementById('filtersContainer').style.display = 'block';
+                document.getElementById('recentContainer').style.display = 'block';
+
+                // Start NFC reading
+                startNFCReading();
+            } catch (error) {
+                showToast('Error loading competition', 'error');
+            }
+        }
+
+        // Load stats
+        async function loadStats(compId) {
+            const stats = await API.get(`/api/stats/${compId}`);
+            document.getElementById('totalCheckins').textContent = stats.total_checkins;
+            document.getElementById('totalCompetitors').textContent = stats.total_competitors;
+            document.getElementById('tagsAssigned').textContent = stats.tags_assigned;
+        }
+
+        // Load check-ins
+        async function loadCheckins(compId) {
+            checkins = await API.get(`/api/checkin/${compId}`);
+            renderRecentCheckins();
+        }
+
+        // Load competitors
+        async function loadCompetitors(compId) {
+            competitors = await API.get(`/api/competitors/${compId}`);
+        }
+
+        // Render recent check-ins
+        function renderRecentCheckins() {
+            const container = document.getElementById('recentList');
+            const recent = checkins.slice(0, 20);
+            
+            if (recent.length === 0) {
+                container.innerHTML = '<p style="color:var(--text-muted); text-align:center;">No check-ins yet. Tap an NFC card to begin.</p>';
+                return;
+            }
+
+            container.innerHTML = recent.map(c => `
+                <div class="recent-item">
+                    <span class="check">✓</span>
+                    <span class="name">${c.competitor_name}</span>
+                    <span class="wca-id">${c.wca_id || c.temp_id || ''}</span>
+                    <span class="time">${formatTime(c.check_in_time)}</span>
+                </div>
+            `).join('');
+        }
+
+        // Start NFC reading
+        async function startNFCReading() {
+            const scanner = document.getElementById('nfcScanner');
+            const message = document.getElementById('scannerMessage');
+            const uidEl = document.getElementById('scannerUid');
+
+            if (!checkNFCSupport()) {
+                message.textContent = 'NFC not supported — use Manual mode';
+                scanner.classList.add('error');
+                return;
+            }
+
+            try {
+                await nfc.startReading(
+                    // On read
+                    async (data) => {
+                        const tagUid = data.uid.replace(/:/g, '').toUpperCase();
+                        
+                        // Show scanning
+                        scanner.classList.remove('success', 'error');
+                        scanner.classList.add('scanning');
+                        message.textContent = 'Reading tag...';
+                        uidEl.textContent = tagUid;
+
+                        try {
+                            // Look up tag
+                            const result = await API.get(`/api/tag/lookup/${tagUid}`);
+                            
+                            if (result.found && result.competitor) {
+                                // Record check-in
+                                const eventFilter = document.getElementById('eventFilter').value;
+                                const tableFilter = document.getElementById('tableFilter').value;
+
+                                await API.post('/api/checkin', {
+                                    competition_id: currentComp.competition_id,
+                                    wca_id: result.tag.wca_id,
+                                    temp_id: result.tag.temp_id,
+                                    competitor_name: result.competitor.name,
+                                    tag_uid: tagUid,
+                                    event_id: eventFilter || null,
+                                    table_number: tableFilter ? parseInt(tableFilter) : null,
+                                    method: 'nfc'
+                                });
+
+                                // Success
+                                scanner.classList.remove('scanning');
+                                scanner.classList.add('success');
+                                message.textContent = `✓ ${result.competitor.name}`;
+                                uidEl.textContent = result.tag.wca_id || result.tag.temp_id;
+
+                                // Reload data
+                                await Promise.all([
+                                    loadStats(currentComp.competition_id),
+                                    loadCheckins(currentComp.competition_id)
+                                ]);
+
+                                showToast(`Checked in: ${result.competitor.name}`, 'success');
+                            } else {
+                                // Tag not found
+                                scanner.classList.remove('scanning');
+                                scanner.classList.add('error');
+                                message.textContent = 'Tag not registered';
+                                uidEl.textContent = tagUid;
+
+                                showToast('Tag not registered. Assign it first.', 'error');
+                            }
+
+                            // Reset scanner after 3 seconds
+                            setTimeout(() => {
+                                scanner.classList.remove('success', 'error');
+                                message.textContent = 'Tap competitor ID card';
+                                uidEl.textContent = '';
+                            }, 3000);
+                        } catch (error) {
+                            scanner.classList.remove('scanning');
+                            scanner.classList.add('error');
+                            message.textContent = 'Error checking in';
+                            showToast('Error recording check-in', 'error');
+                        }
+                    },
+                    // On error
+                    (error) => {
+                        scanner.classList.add('error');
+                        message.textContent = 'Error reading NFC';
+                        showToast('NFC error: ' + error.message, 'error');
+                    }
+                );
+            } catch (error) {
+                message.textContent = 'NFC permission denied or unavailable';
+                scanner.classList.add('error');
+            }
+        }
+
+        // Show manual check-in form
+        function showManualCheckin() {
+            const form = document.getElementById('manualForm');
+            form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Manual check-in
+        async function manualCheckin() {
+            const identifier = document.getElementById('manualIdentifier').value.trim();
+            if (!identifier) return;
+
+            const eventFilter = document.getElementById('eventFilter').value;
+            const tableFilter = document.getElementById('tableFilter').value;
+
+            try {
+                const result = await API.post('/api/checkin/manual', {
+                    competition_id: currentComp.competition_id,
+                    identifier,
+                    event_id: eventFilter || null,
+                    table_number: tableFilter ? parseInt(tableFilter) : null
+                });
+
+                showToast(`Checked in: ${result.competitor.name}`, 'success');
+                document.getElementById('manualIdentifier').value = '';
+                
+                await Promise.all([
+                    loadStats(currentComp.competition_id),
+                    loadCheckins(currentComp.competition_id)
+                ]);
+            } catch (error) {
+                showToast('Competitor not found', 'error');
+            }
+        }
+
+        // Filter check-ins
+        async function filterCheckins() {
+            if (!currentComp) return;
+            
+            const eventFilter = document.getElementById('eventFilter').value;
+            const tableFilter = document.getElementById('tableFilter').value;
+            
+            let params = {};
+            if (eventFilter) params.event_id = `eq.${eventFilter}`;
+            if (tableFilter) params.table_number = `eq.${tableFilter}`;
+            
+            const queryString = new URLSearchParams(params).toString();
+            checkins = await API.get(`/api/checkin/${currentComp.competition_id}?${queryString}`);
+            renderRecentCheckins();
+        }
+
+        // Enter key for manual check-in
+        document.getElementById('manualIdentifier')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') manualCheckin();
+        });
+    </script>
+</body>
+</html>

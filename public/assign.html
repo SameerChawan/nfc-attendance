@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assign Tags — NFC Attendance</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to Home</a>
+        
+        <div class="page-header">
+            <h1>🏷️ Assign NFC Tags</h1>
+            <div>
+                <select id="compSelect" onchange="loadCompetition()">
+                    <option value="">Select Competition</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Assignment Flow -->
+        <div id="assignContainer" style="display:none;">
+            <!-- Step 1: Tap NFC -->
+            <div class="nfc-scanner" id="nfcScanner">
+                <div class="icon">📱</div>
+                <div class="message" id="scannerMessage">Step 1: Tap NFC tag to assign</div>
+                <div class="uid" id="scannerUid"></div>
+            </div>
+
+            <!-- Step 2: Select Competitor -->
+            <div id="competitorSelect" style="display:none; margin:2rem 0;">
+                <h2 style="margin-bottom:1rem;">Step 2: Select Competitor</h2>
+                
+                <div class="form-group">
+                    <label>Search by name, WCA ID, or Temp ID</label>
+                    <input type="text" id="searchInput" placeholder="Type to search..." oninput="filterCompetitors()">
+                </div>
+
+                <div class="competitor-list" id="competitorList" style="max-height:300px; overflow-y:auto;"></div>
+            </div>
+
+            <!-- Step 3: Confirm -->
+            <div id="confirmSection" style="display:none; margin:2rem 0;">
+                <div class="alert alert-info">
+                    <h2 style="margin-bottom:0.5rem;">Confirm Assignment</h2>
+                    <p><strong>Tag UID:</strong> <span id="confirmUid" style="font-family:monospace;"></span></p>
+                    <p><strong>Competitor:</strong> <span id="confirmName"></span></p>
+                    <p><strong>WCA ID:</strong> <span id="confirmWcaId"></span></p>
+                </div>
+                <div style="display:flex; gap:1rem; margin-top:1rem;">
+                    <button class="btn btn-success" onclick="confirmAssign()">✅ Assign Tag</button>
+                    <button class="btn btn-outline" onclick="resetAssignment()">❌ Cancel</button>
+                </div>
+            </div>
+
+            <!-- Recent Assignments -->
+            <div style="margin-top:2rem;">
+                <h2 style="margin-bottom:1rem;">Recent Assignments</h2>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Tag UID</th>
+                                <th>Competitor</th>
+                                <th>WCA ID</th>
+                                <th>Assigned At</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentTags"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- No competition selected -->
+        <div id="noCompMessage" class="alert alert-info">
+            Select a competition to start assigning tags.
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+    <script src="/js/nfc.js"></script>
+    <script>
+        let currentComp = null;
+        let competitors = [];
+        let selectedCompetitor = null;
+        let currentTagUid = null;
+
+        // Load competitions list
+        window.onload = async () => {
+            try {
+                const comps = await API.get('/api/competitions');
+                const select = document.getElementById('compSelect');
+                
+                comps.forEach(comp => {
+                    const opt = document.createElement('option');
+                    opt.value = comp.competition_id;
+                    opt.textContent = comp.name;
+                    select.appendChild(opt);
+                });
+
+                // Check URL params
+                const params = new URLSearchParams(window.location.search);
+                const compParam = params.get('comp');
+                if (compParam) {
+                    select.value = compParam;
+                    await loadCompetition();
+                }
+            } catch (error) {
+                showToast('Error loading competitions', 'error');
+            }
+        };
+
+        // Load selected competition
+        async function loadCompetition() {
+            const compId = document.getElementById('compSelect').value;
+            
+            if (!compId) {
+                document.getElementById('noCompMessage').style.display = 'block';
+                document.getElementById('assignContainer').style.display = 'none';
+                return;
+            }
+
+            try {
+                currentComp = await API.get(`/api/competition/${compId}`);
+                competitors = await API.get(`/api/competitors/${compId}`);
+                
+                document.getElementById('noCompMessage').style.display = 'none';
+                document.getElementById('assignContainer').style.display = 'block';
+
+                renderCompetitorList();
+                await loadRecentTags();
+                startNFCReading();
+            } catch (error) {
+                showToast('Error loading competition', 'error');
+            }
+        }
+
+        // Start NFC reading
+        async function startNFCReading() {
+            const scanner = document.getElementById('nfcScanner');
+            const message = document.getElementById('scannerMessage');
+            const uidEl = document.getElementById('scannerUid');
+
+            if (!checkNFCSupport()) {
+                message.textContent = 'NFC not supported on this device';
+                scanner.classList.add('error');
+                return;
+            }
+
+            try {
+                await nfc.startReading(
+                    // On read
+                    async (data) => {
+                        currentTagUid = data.uid.replace(/:/g, '').toUpperCase();
+                        
+                        // Show tag UID
+                        scanner.classList.remove('success', 'error');
+                        scanner.classList.add('scanning');
+                        message.textContent = 'Tag detected!';
+                        uidEl.textContent = currentTagUid;
+
+                        // Show competitor selection
+                        document.getElementById('competitorSelect').style.display = 'block';
+                        document.getElementById('confirmSection').style.display = 'none';
+                        document.getElementById('searchInput').value = '';
+                        renderCompetitorList();
+
+                        // Reset scanner after 2 seconds
+                        setTimeout(() => {
+                            scanner.classList.remove('scanning');
+                            message.textContent = 'Step 1: Tap NFC tag to assign';
+                        }, 2000);
+                    },
+                    // On error
+                    (error) => {
+                        scanner.classList.add('error');
+                        message.textContent = 'Error reading NFC';
+                        showToast('NFC error: ' + error.message, 'error');
+                    }
+                );
+            } catch (error) {
+                message.textContent = 'NFC permission denied or unavailable';
+                scanner.classList.add('error');
+            }
+        }
+
+        // Render competitor list
+        function renderCompetitorList() {
+            const container = document.getElementById('competitorList');
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            
+            const filtered = competitors.filter(c => {
+                const searchStr = `${c.name} ${c.wca_id || ''} ${c.temp_id || ''}`.toLowerCase();
+                return searchStr.includes(search);
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<p style="color:var(--text-muted); text-align:center; padding:1rem;">No competitors found</p>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(c => `
+                <div class="recent-item" style="cursor:pointer;" onclick="selectCompetitor(${c.id})">
+                    <span class="name">${c.name}</span>
+                    <span class="wca-id">${c.wca_id || c.temp_id || 'No ID'}</span>
+                    <span style="color:${c.is_new ? 'var(--warning)' : 'var(--success)'}">${c.is_new ? 'New' : 'WCA'}</span>
+                </div>
+            `).join('');
+        }
+
+        // Filter competitors
+        function filterCompetitors() {
+            renderCompetitorList();
+        }
+
+        // Select competitor
+        function selectCompetitor(id) {
+            selectedCompetitor = competitors.find(c => c.id === id);
+            
+            if (!selectedCompetitor) return;
+
+            // Show confirmation
+            document.getElementById('confirmSection').style.display = 'block';
+            document.getElementById('confirmUid').textContent = currentTagUid;
+            document.getElementById('confirmName').textContent = selectedCompetitor.name;
+            document.getElementById('confirmWcaId').textContent = selectedCompetitor.wca_id || selectedCompetitor.temp_id || 'New Competitor';
+        }
+
+        // Confirm assignment
+        async function confirmAssign() {
+            if (!currentTagUid || !selectedCompetitor) return;
+
+            try {
+                await API.post('/api/tag/assign', {
+                    tag_uid: currentTagUid,
+                    competition_id: currentComp.competition_id,
+                    wca_id: selectedCompetitor.wca_id || null,
+                    temp_id: selectedCompetitor.temp_id || null
+                });
+
+                showToast(`Tag assigned to ${selectedCompetitor.name}!`, 'success');
+                resetAssignment();
+                await loadRecentTags();
+            } catch (error) {
+                showToast('Error assigning tag', 'error');
+            }
+        }
+
+        // Reset assignment
+        function resetAssignment() {
+            currentTagUid = null;
+            selectedCompetitor = null;
+            document.getElementById('competitorSelect').style.display = 'none';
+            document.getElementById('confirmSection').style.display = 'none';
+            document.getElementById('searchInput').value = '';
+        }
+
+        // Load recent tags
+        async function loadRecentTags() {
+            if (!currentComp) return;
+
+            const tags = await API.get(`/api/tags/${currentComp.competition_id}`);
+            const tbody = document.getElementById('recentTags');
+            
+            if (tags.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No tags assigned yet</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = tags.slice(0, 10).map(t => {
+                // Find competitor name
+                let name = '-';
+                if (t.wca_id) {
+                    const comp = competitors.find(c => c.wca_id === t.wca_id);
+                    name = comp ? comp.name : t.wca_id;
+                } else if (t.temp_id) {
+                    const comp = competitors.find(c => c.temp_id === t.temp_id);
+                    name = comp ? comp.name : t.temp_id;
+                }
+
+                return `
+                    <tr>
+                        <td style="font-family:monospace;">${t.tag_uid}</td>
+                        <td>${name}</td>
+                        <td style="font-family:monospace;">${t.wca_id || t.temp_id || '-'}</td>
+                        <td>${t.assigned_at ? formatTime(t.assigned_at) : '-'}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    </script>
+</body>
+</html>

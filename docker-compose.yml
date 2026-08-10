@@ -1,0 +1,18 @@
+services:
+  nfc-attendance:
+    build: .
+    container_name: nfc-attendance
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3004:3004"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - ./uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3004/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

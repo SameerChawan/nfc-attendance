@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel — NFC Attendance</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to Home</a>
+        
+        <div class="page-header">
+            <h1>⚙️ Admin Panel</h1>
+            <button class="btn btn-primary" onclick="showCreateCompetition()">+ New Competition</button>
+        </div>
+
+        <!-- Competitions List -->
+        <div id="competitionsList"></div>
+
+        <!-- Competition Detail View (hidden by default) -->
+        <div id="competitionDetail" style="display:none;">
+            <div class="page-header">
+                <div>
+                    <a href="#" class="back-link" onclick="showCompetitionsList()">← All Competitions</a>
+                    <h1 id="compName"></h1>
+                    <p class="subtitle" id="compInfo"></p>
+                </div>
+                <div style="display:flex; gap:0.5rem;">
+                    <a href="/attendance.html?comp=" id="attendanceLink" class="btn btn-success">✅ Attendance</a>
+                    <a href="/assign.html?comp=" id="assignLink" class="btn btn-outline">🏷️ Assign Tags</a>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('competitors')">Competitors</button>
+                <button class="tab" onclick="showTab('tags')">NFC Tags</button>
+                <button class="tab" onclick="showTab('checkins')">Check-ins</button>
+            </div>
+
+            <!-- Competitors Panel -->
+            <div id="competitorsPanel" class="panel active">
+                <div style="display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap;">
+                    <button class="btn btn-primary" onclick="showAddCompetitor()">+ Add Competitor</button>
+                    <button class="btn btn-outline" onclick="showUploadCompetitors()">📁 Upload CSV</button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>WCA ID</th>
+                                <th>Temp ID</th>
+                                <th>Email</th>
+                                <th>Phone</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="competitorsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tags Panel -->
+            <div id="tagsPanel" class="panel">
+                <div style="display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap;">
+                    <a href="/assign.html?comp=" id="assignLink2" class="btn btn-primary">🏷️ Assign Tag</a>
+                    <button class="btn btn-outline" onclick="showUploadTags()">📁 Upload CSV</button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Tag UID</th>
+                                <th>WCA ID</th>
+                                <th>Temp ID</th>
+                                <th>Assigned At</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tagsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Check-ins Panel -->
+            <div id="checkinsPanel" class="panel">
+                <div style="display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap;">
+                    <button class="btn btn-outline" onclick="exportCheckins()">📥 Export CSV</button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>WCA ID</th>
+                                <th>Event</th>
+                                <th>Table</th>
+                                <th>Time</th>
+                                <th>Method</th>
+                            </tr>
+                        </thead>
+                        <tbody id="checkinsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Competition Modal -->
+    <div id="createCompModal" class="modal-overlay" style="display:none;">
+        <div class="modal">
+            <h2>Create Competition</h2>
+            <form id="createCompForm" onsubmit="createCompetition(event)">
+                <div class="form-group">
+                    <label>Competition ID</label>
+                    <input type="text" name="competition_id" required placeholder="e.g., SG-Summer-2026">
+                </div>
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" name="name" required placeholder="e.g., Singapore Summer Open 2026">
+                </div>
+                <div class="form-group">
+                    <label>Date</label>
+                    <input type="date" name="date">
+                </div>
+                <div class="form-group">
+                    <label>Location</label>
+                    <input type="text" name="location" placeholder="e.g., Singapore">
+                </div>
+                <div class="form-group">
+                    <label>Events (comma-separated)</label>
+                    <input type="text" name="events" placeholder="e.g., 333, 222, 444, OH, Pyram">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="hideModal('createCompModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Competitor Modal -->
+    <div id="addCompModal" class="modal-overlay" style="display:none;">
+        <div class="modal">
+            <h2>Add Competitor</h2>
+            <form id="addCompForm" onsubmit="addCompetitor(event)">
+                <input type="hidden" name="competition_id" id="addCompCompId">
+                <div class="form-group">
+                    <label>WCA ID (leave empty for new competitor)</label>
+                    <input type="text" name="wca_id" placeholder="e.g., 2023CHAW01">
+                </div>
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" name="name" required placeholder="Full name">
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" name="email" placeholder="email@example.com">
+                </div>
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="text" name="phone" placeholder="+65...">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="hideModal('addCompModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Upload Competitors Modal -->
+    <div id="uploadCompModal" class="modal-overlay" style="display:none;">
+        <div class="modal">
+            <h2>Upload Competitors CSV</h2>
+            <p style="color:var(--text-muted); margin-bottom:1rem;">CSV format: wca_id, name, email, phone</p>
+            <form id="uploadCompForm" onsubmit="uploadCompetitors(event)">
+                <input type="hidden" name="competition_id" id="uploadCompCompId">
+                <div class="upload-area" onclick="document.getElementById('compCsvFile').click()">
+                    <input type="file" id="compCsvFile" name="file" accept=".csv" required>
+                    <p>📁 Click to select CSV file</p>
+                    <p id="compFileName" style="color:var(--primary); margin-top:0.5rem;"></p>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="hideModal('uploadCompModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Upload</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Upload Tags Modal -->
+    <div id="uploadTagsModal" class="modal-overlay" style="display:none;">
+        <div class="modal">
+            <h2>Upload NFC Tags CSV</h2>
+            <p style="color:var(--text-muted); margin-bottom:1rem;">CSV format: tag_uid, wca_id (or temp_id)</p>
+            <form id="uploadTagsForm" onsubmit="uploadTags(event)">
+                <input type="hidden" name="competition_id" id="uploadTagsCompId">
+                <div class="upload-area" onclick="document.getElementById('tagsCsvFile').click()">
+                    <input type="file" id="tagsCsvFile" name="file" accept=".csv" required>
+                    <p>📁 Click to select CSV file</p>
+                    <p id="tagsFileName" style="color:var(--primary); margin-top:0.5rem;"></p>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="hideModal('uploadTagsModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Upload</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+    <script>
+        let currentCompId = null;
+
+        // Load competitions on page load
+        window.onload = () => loadCompetitions();
+
+        // Load competitions
+        async function loadCompetitions() {
+            try {
+                const comps = await API.get('/api/competitions');
+                renderCompetitions(comps);
+            } catch (error) {
+                showToast('Error loading competitions', 'error');
+            }
+        }
+
+        // Render competitions list
+        function renderCompetitions(comps) {
+            const container = document.getElementById('competitionsList');
+            
+            if (comps.length === 0) {
+                container.innerHTML = `
+                    <div class="alert alert-info">
+                        No competitions yet. Create your first one!
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = comps.map(comp => `
+                <div class="card" style="margin-bottom:1rem; cursor:pointer;" onclick="openCompetition('${comp.competition_id}')">
+                    <div style="display:flex; justify-content:space-between; align-items:start;">
+                        <div>
+                            <h2>${comp.name}</h2>
+                            <p class="subtitle">
+                                ${comp.date ? formatDate(comp.date) : 'No date'} • ${comp.location || 'No location'}
+                            </p>
+                            <p style="color:var(--text-muted); margin-top:0.5rem;">
+                                Events: ${comp.events?.join(', ') || 'None'}
+                            </p>
+                        </div>
+                        <span class="status-dot ${comp.active ? 'supported' : ''}" style="margin-top:0.5rem;"></span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Open competition detail
+        async function openCompetition(compId) {
+            currentCompId = compId;
+            
+            try {
+                const comp = await API.get(`/api/competition/${compId}`);
+                
+                document.getElementById('compName').textContent = comp.name;
+                document.getElementById('compInfo').textContent = 
+                    `${comp.date ? formatDate(comp.date) : 'No date'} • ${comp.location || 'No location'} • Events: ${comp.events?.join(', ') || 'None'}`;
+                
+                // Update links
+                document.getElementById('attendanceLink').href = `/attendance.html?comp=${compId}`;
+                document.getElementById('assignLink').href = `/assign.html?comp=${compId}`;
+                document.getElementById('assignLink2').href = `/assign.html?comp=${compId}`;
+                
+                // Set hidden fields
+                document.getElementById('addCompCompId').value = compId;
+                document.getElementById('uploadCompCompId').value = compId;
+                document.getElementById('uploadTagsCompId').value = compId;
+                
+                // Load data
+                await Promise.all([
+                    loadCompetitors(compId),
+                    loadTags(compId),
+                    loadCheckins(compId)
+                ]);
+                
+                document.getElementById('competitionsList').style.display = 'none';
+                document.getElementById('competitionDetail').style.display = 'block';
+            } catch (error) {
+                showToast('Error loading competition', 'error');
+            }
+        }
+
+        // Load competitors
+        async function loadCompetitors(compId) {
+            const competitors = await API.get(`/api/competitors/${compId}`);
+            renderCompetitors(competitors);
+        }
+
+        // Render competitors
+        function renderCompetitors(competitors) {
+            const tbody = document.getElementById('competitorsBody');
+            
+            if (competitors.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No competitors yet</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = competitors.map(c => `
+                <tr>
+                    <td>${c.name}</td>
+                    <td style="font-family:monospace;">${c.wca_id || '-'}</td>
+                    <td style="font-family:monospace;">${c.temp_id || '-'}</td>
+                    <td>${c.email || '-'}</td>
+                    <td>${c.phone || '-'}</td>
+                    <td>${c.is_new ? '<span style="color:var(--warning);">New</span>' : '<span style="color:var(--success);">WCA</span>'}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Load tags
+        async function loadTags(compId) {
+            const tags = await API.get(`/api/tags/${compId}`);
+            renderTags(tags);
+        }
+
+        // Render tags
+        function renderTags(tags) {
+            const tbody = document.getElementById('tagsBody');
+            
+            if (tags.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No tags assigned yet</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = tags.map(t => `
+                <tr>
+                    <td style="font-family:monospace;">${t.tag_uid}</td>
+                    <td style="font-family:monospace;">${t.wca_id || '-'}</td>
+                    <td style="font-family:monospace;">${t.temp_id || '-'}</td>
+                    <td>${t.assigned_at ? formatDate(t.assigned_at) : '-'}</td>
+                    <td>${t.status === 'assigned' ? '<span style="color:var(--success);">Assigned</span>' : '<span style="color:var(--text-muted);">Unassigned</span>'}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Load check-ins
+        async function loadCheckins(compId) {
+            const checkins = await API.get(`/api/checkin/${compId}`);
+            renderCheckins(checkins);
+        }
+
+        // Render check-ins
+        function renderCheckins(checkins) {
+            const tbody = document.getElementById('checkinsBody');
+            
+            if (checkins.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No check-ins yet</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = checkins.map(c => `
+                <tr>
+                    <td>${c.competitor_name}</td>
+                    <td style="font-family:monospace;">${c.wca_id || c.temp_id || '-'}</td>
+                    <td>${c.event_id || '-'}</td>
+                    <td>${c.table_number || '-'}</td>
+                    <td>${formatTime(c.check_in_time)}</td>
+                    <td>${c.method === 'nfc' ? '📱 NFC' : '✏️ Manual'}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Show/hide tabs
+        function showTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Update panels
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.getElementById(`${tabName}Panel`).classList.add('active');
+        }
+
+        // Show competitions list
+        function showCompetitionsList() {
+            document.getElementById('competitionsList').style.display = 'block';
+            document.getElementById('competitionDetail').style.display = 'none';
+            currentCompId = null;
+        }
+
+        // Modal helpers
+        function showModal(id) {
+            document.getElementById(id).style.display = 'flex';
+        }
+
+        function hideModal(id) {
+            document.getElementById(id).style.display = 'none';
+        }
+
+        function showCreateCompetition() {
+            showModal('createCompModal');
+        }
+
+        function showAddCompetitor() {
+            showModal('addCompModal');
+        }
+
+        function showUploadCompetitors() {
+            showModal('uploadCompModal');
+        }
+
+        function showUploadTags() {
+            showModal('uploadTagsModal');
+        }
+
+        // Create competition
+        async function createCompetition(e) {
+            e.preventDefault();
+            const form = e.target;
+            const data = {
+                competition_id: form.competition_id.value,
+                name: form.name.value,
+                date: form.date.value || null,
+                location: form.location.value,
+                events: form.events.value.split(',').map(e => e.trim()).filter(e => e)
+            };
+
+            try {
+                await API.post('/api/competition', data);
+                hideModal('createCompModal');
+                form.reset();
+                showToast('Competition created!', 'success');
+                loadCompetitions();
+            } catch (error) {
+                showToast('Error creating competition', 'error');
+            }
+        }
+
+        // Add competitor
+        async function addCompetitor(e) {
+            e.preventDefault();
+            const form = e.target;
+            const data = {
+                competition_id: form.competition_id.value,
+                wca_id: form.wca_id.value || null,
+                name: form.name.value,
+                email: form.email.value,
+                phone: form.phone.value
+            };
+
+            try {
+                await API.post('/api/competitor', data);
+                hideModal('addCompModal');
+                form.reset();
+                showToast('Competitor added!', 'success');
+                loadCompetitors(currentCompId);
+            } catch (error) {
+                showToast('Error adding competitor', 'error');
+            }
+        }
+
+        // Upload competitors CSV
+        async function uploadCompetitors(e) {
+            e.preventDefault();
+            const form = e.target;
+            const formData = new FormData(form);
+
+            try {
+                const result = await API.upload('/api/competitors/csv', formData);
+                hideModal('uploadCompModal');
+                form.reset();
+                showToast(`Imported ${result.imported} competitors!`, 'success');
+                loadCompetitors(currentCompId);
+            } catch (error) {
+                showToast('Error uploading CSV', 'error');
+            }
+        }
+
+        // Upload tags CSV
+        async function uploadTags(e) {
+            e.preventDefault();
+            const form = e.target;
+            const formData = new FormData(form);
+
+            try {
+                const result = await API.upload('/api/tags/csv', formData);
+                hideModal('uploadTagsModal');
+                form.reset();
+                showToast(`Imported ${result.imported} tags!`, 'success');
+                loadTags(currentCompId);
+            } catch (error) {
+                showToast('Error uploading CSV', 'error');
+            }
+        }
+
+        // Export check-ins
+        async function exportCheckins() {
+            if (!currentCompId) return;
+            window.location.href = `/api/checkin/${currentCompId}/export`;
+        }
+
+        // File input change handlers
+        document.getElementById('compCsvFile')?.addEventListener('change', (e) => {
+            document.getElementById('compFileName').textContent = e.target.files[0]?.name || '';
+        });
+
+        document.getElementById('tagsCsvFile')?.addEventListener('change', (e) => {
+            document.getElementById('tagsFileName').textContent = e.target.files[0]?.name || '';
+        });
+    </script>
+</body>
+</html>
