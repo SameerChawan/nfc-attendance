@@ -425,27 +425,33 @@ app.get('/api/tag/lookup/:uid', async (req, res) => {
 
 // ==================== CHECK-INS ====================
 
-// Record attendance (prevent duplicate general check-in)
+// Record attendance (prevent duplicate check-in)
 app.post('/api/checkin', async (req, res) => {
     try {
         const { competition_id, wca_id, temp_id, competitor_name, tag_uid, event_id, table_number, method } = req.body;
         
-        // Check for existing check-in (general check-in - no event/table specified)
-        if (!event_id && !table_number) {
+        // Build duplicate check filter
+        let duplicateFilter;
+        if (event_id && table_number) {
+            // Table/event check-in - check for same event+table
+            duplicateFilter = wca_id 
+                ? { 'competition_id': `eq.${competition_id}`, 'wca_id': `eq.${wca_id}`, 'event_id': `eq.${event_id}`, 'table_number': `eq.${table_number}` }
+                : { 'competition_id': `eq.${competition_id}`, 'temp_id': `eq.${temp_id}`, 'event_id': `eq.${event_id}`, 'table_number': `eq.${table_number}` };
+        } else {
             // General check-in - check if already checked in (without event/table)
-            const checkinFilter = wca_id 
+            duplicateFilter = wca_id 
                 ? { 'competition_id': `eq.${competition_id}`, 'wca_id': `eq.${wca_id}`, 'event_id': 'is.null', 'table_number': 'is.null' }
                 : { 'competition_id': `eq.${competition_id}`, 'temp_id': `eq.${temp_id}`, 'event_id': 'is.null', 'table_number': 'is.null' };
-            
-            const existingCheckin = await supabaseQuery('nfc_check_ins', 'GET', null, checkinFilter);
-            
-            if (existingCheckin.length > 0) {
-                return res.status(409).json({ 
-                    error: 'Already checked in',
-                    check_in_time: existingCheckin[0].check_in_time,
-                    method: existingCheckin[0].method
-                });
-            }
+        }
+        
+        const existingCheckin = await supabaseQuery('nfc_check_ins', 'GET', null, duplicateFilter);
+        
+        if (existingCheckin.length > 0) {
+            return res.status(409).json({ 
+                error: 'Already checked in',
+                check_in_time: existingCheckin[0].check_in_time,
+                method: existingCheckin[0].method
+            });
         }
         
         const result = await supabaseQuery('nfc_check_ins', 'POST', {

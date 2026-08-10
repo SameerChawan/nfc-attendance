@@ -281,11 +281,12 @@
 
                                     showToast(`Checked in: ${result.competitor.name}`, 'success');
                                 } catch (error) {
-                                    if (error.message.includes('409')) {
+                                    const errStr = String(error);
+                                    if (errStr.includes('409') || errStr.includes('Already checked in')) {
                                         scanner.classList.remove('scanning');
                                         scanner.classList.add('error');
-                                        message.textContent = 'Already checked in';
-                                        showToast('Competitor already checked in', 'error');
+                                        message.textContent = 'Already checked in at this table';
+                                        showToast('Competitor already checked in at this table', 'error');
                                     } else {
                                         throw error;
                                     }
@@ -351,8 +352,9 @@
                     loadCheckins()
                 ]);
             } catch (error) {
-                if (error.message.includes('409')) {
-                    showToast('Competitor already checked in', 'error');
+                const errStr = String(error);
+                if (errStr.includes('409') || errStr.includes('Already checked in')) {
+                    showToast('Competitor already checked in at this table', 'error');
                 } else {
                     showToast('Competitor not found', 'error');
                 }
